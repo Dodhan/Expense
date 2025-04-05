@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>내 월급은 어디로</title>
+  <style>
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background-color: #FFF5F7;
+      padding: 20px;
+    }
+    h1 {
+      color: #E26A6A;
+    }
+    table {
+      width: 100%;
+      margin-top: 20px;
+      border-collapse: collapse;
+      background-color: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #f0f0f0;
+      text-align: center;
+    }
+    th {
+      background-color: #FFE6E6;
+    }
+    input, select, button {
+      margin: 5px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ddd;
+    }
+    button {
+      background-color: #FFB6B6;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #FF9090;
+    }
+    .summary {
+      background: #FFF0F5;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <h1>내 월급은 어디로</h1>
+
+  <div>
+    <input type="date" id="date" />
+    <input type="text" id="item" placeholder="항목" />
+    <input type="number" id="amount" placeholder="금액" />
+    <input type="number" id="installments" placeholder="할부개월(선택)" min="1" />
+    <select id="method">
+      <option value="카드">카드</option>
+      <option value="현금">현금</option>
+      <option value="계좌이체">계좌이체</option>
+    </select>
+    <select id="category">
+      <option value="식비">🍽️ 식비</option>
+      <option value="교통">🚌 교통</option>
+      <option value="생활">🧻 생활</option>
+      <option value="쇼핑">🛍️ 쇼핑</option>
+      <option value="취미">🎮 취미</option>
+      <option value="건강">💊 건강</option>
+      <option value="고정비">📅 고정비</option>
+      <option value="기타">❓ 기타</option>
+    </select>
+    <input type="text" id="memo" placeholder="메모" />
+    <button onclick="addExpense()">추가</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>날짜</th>
+        <th>항목</th>
+        <th>금액</th>
+        <th>결제수단</th>
+        <th>카테고리</th>
+        <th>메모</th>
+        <th>삭제</th>
+      </tr>
+    </thead>
+    <tbody id="expenseTable"></tbody>
+  </table>
+
+  <div class="summary">
+    <h2>주별 총합</h2>
+    <div id="weeklyTotal"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCR4oUMAumaXdksLqEbcQC1WvSxwZER9DI",
+      authDomain: "expans-29602.firebaseapp.com",
+      projectId: "expans-29602",
+      storageBucket: "expans-29602.firebasestorage.app",
+      messagingSenderId: "1079776177672",
+      appId: "1:1079776177672:web:1ef88f80a6608b5d87abbd",
+      measurementId: "G-86QRPHGHB8",
+      databaseURL: "https://expans-29602-default-rtdb.asia-southeast1.firebasedatabase.app"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function addExpense() {
+      const dateStr = document.getElementById("date").value;
+      const item = document.getElementById("item").value;
+      const amount = parseFloat(document.getElementById("amount").value);
+      const method = document.getElementById("method").value;
+      const category = document.getElementById("category").value;
+      const memo = document.getElementById("memo").value;
+      const installments = parseInt(document.getElementById("installments").value) || 1;
+
+      if (!dateStr || !item || !amount) {
+        alert("날짜, 항목, 금액을 입력해주세요.");
+        return;
+      }
+
+      const date = new Date(dateStr);
+      const dividedAmount = Math.round((amount / installments) * 100) / 100;
+
+      for (let i = 0; i < installments; i++) {
+        const instDate = new Date(date);
+        instDate.setMonth(date.getMonth() + i);
+        const formattedDate = instDate.toISOString().split("T")[0];
+
+        const newEntry = {
+          date: formattedDate,
+          item: `${item} (할부 ${i + 1}/${installments})`,
+          amount: dividedAmount,
+          method,
+          category,
+          memo
+        };
+
+        const newRef = db.ref("expenses").push();
+        newRef.set(newEntry);
+      }
+
+      document.getElementById("date").value = "";
+      document.getElementById("item").value = "";
+      document.getElementById("amount").value = "";
+      document.getElementById("memo").value = "";
+      document.getElementById("installments").value = "";
+    }
+
+    function loadExpenses() {
+      db.ref("expenses").on("value", (snapshot) => {
+        const table = document.getElementById("expenseTable");
+        const weeklyTotal = {};
+        table.innerHTML = "";
+
+        const data = snapshot.val();
+        if (!data) return;
+
+        Object.entries(data).forEach(([key, entry]) => {
+          const row = `<tr>
+            <td>${entry.date}</td>
+            <td>${entry.item}</td>
+            <td>${Number(entry.amount).toLocaleString()}원</td>
+            <td>${entry.method}</td>
+            <td>${entry.category}</td>
+            <td>${entry.memo}</td>
+            <td><button onclick="deleteExpense('${key}')">삭제</button></td>
+          </tr>`;
+          table.innerHTML += row;
+
+          const d = new Date(entry.date);
+          const y = d.getFullYear();
+          const w = getWeekNumber(d);
+          const wkKey = `${y}-W${w}`;
+          weeklyTotal[wkKey] = (weeklyTotal[wkKey] || 0) + Number(entry.amount);
+        });
+
+        showWeeklyTotal(weeklyTotal);
+      });
+    }
+
+    function deleteExpense(key) {
+      db.ref("expenses/" + key).remove();
+    }
+
+    function getWeekNumber(date) {
+      const d = new Date(date.getTime());
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+      const yearStart = new Date(d.getFullYear(), 0, 1);
+      return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+    }
+
+    function showWeeklyTotal(totals) {
+      const container = document.getElementById("weeklyTotal");
+      container.innerHTML = "";
+      const keys = Object.keys(totals).sort();
+      keys.forEach(key => {
+        const div = document.createElement("div");
+        div.textContent = `${key} : ${totals[key].toLocaleString()}원`;
+        container.appendChild(div);
+      });
+    }
+
+    window.onload = loadExpenses;
+  </script>
+</body>
+</html>
+
