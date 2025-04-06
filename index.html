@@ -75,7 +75,7 @@
       <option value="고정비">📅 고정비</option>
       <option value="기타">❓ 기타</option>
     </select>
-    <input type="text" id="memo" placeholder="메모" />
+    <input type="text" id="memo" placeholder="할인내역(선택)" />
     <button onclick="addExpense()">추가</button>
   </div>
 
@@ -87,7 +87,7 @@
         <th>금액</th>
         <th>결제수단</th>
         <th>카테고리</th>
-        <th>메모</th>
+        <th>할인내역</th>
         <th>삭제</th>
       </tr>
     </thead>
@@ -95,77 +95,120 @@
   </table>
 
   <div class="summary">
-    <h2>주별 총합</h2>
-    <div id="weeklyTotal"></div>
+    <h2>카테고리별 합계</h2>
+    <div id="categorytotal">
+    <h2>월별 합계</h2>
+    <div class="monthlytotal">
   </div>
 
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  
   <script>
+    // Firebase 설정
     const firebaseConfig = {
       apiKey: "AIzaSyCR4oUMAumaXdksLqEbcQC1WvSxwZER9DI",
       authDomain: "expans-29602.firebaseapp.com",
+      databaseURL: "https://expans-29602-default-rtdb.firebaseio.com",
       projectId: "expans-29602",
-      storageBucket: "expans-29602.firebasestorage.app",
+      storageBucket: "expans-29602.appspot.com",
       messagingSenderId: "1079776177672",
       appId: "1:1079776177672:web:1ef88f80a6608b5d87abbd",
-      measurementId: "G-86QRPHGHB8",
-      databaseURL: "https://expans-29602-default-rtdb.asia-southeast1.firebasedatabase.app"
+      measurementId: "G-86QRPHGHB8"
     };
+    
+    // Firebase 초기화
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-
+    
+    // 연결 테스트
+    console.log("Firebase 연결 시도...");
+    db.ref(".info/connected").on("value", (snapshot) => {
+      if (snapshot.val() === true) {
+        console.log("Firebase에 연결되었습니다!");
+      } else {
+        console.log("Firebase에 연결되지 않았습니다.");
+      }
+    });
+  
+    // 페이지 로드 시 실행
+    window.onload = function() {
+      // 현재 날짜를 기본값으로 설정
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById("date").value = today;
+      
+      // 지출 데이터 로드
+      loadExpenses();
+    };
+  
+    // 지출 추가 함수
     function addExpense() {
+      const category = document.getElementById("category").value;
       const dateStr = document.getElementById("date").value;
       const item = document.getElementById("item").value;
       const amount = parseFloat(document.getElementById("amount").value);
+
       const method = document.getElementById("method").value;
-      const category = document.getElementById("category").value;
       const memo = document.getElementById("memo").value;
       const installments = parseInt(document.getElementById("installments").value) || 1;
-
+  
       if (!dateStr || !item || !amount) {
         alert("날짜, 항목, 금액을 입력해주세요.");
         return;
       }
-
+  
       const date = new Date(dateStr);
       const dividedAmount = Math.round((amount / installments) * 100) / 100;
-
+  
       for (let i = 0; i < installments; i++) {
         const instDate = new Date(date);
         instDate.setMonth(date.getMonth() + i);
         const formattedDate = instDate.toISOString().split("T")[0];
-
+  
         const newEntry = {
           date: formattedDate,
-          item: `${item} (할부 ${i + 1}/${installments})`,
+          item: installments > 1 ? `${item} (할부 ${i + 1}/${installments})` : item,
           amount: dividedAmount,
           method,
           category,
-          memo
+          memo,
+          timestamp: Date.now()
         };
-
+  
         const newRef = db.ref("expenses").push();
-        newRef.set(newEntry);
+        newRef.set(newEntry)
+          .then(() => {
+            console.log("데이터가 성공적으로 추가되었습니다.");
+          })
+          .catch((error) => {
+            console.error("데이터 추가 중 오류가 발생했습니다:", error);
+          });
       }
-
-      document.getElementById("date").value = "";
+  
+      // 입력 필드 초기화 (날짜는 유지)
       document.getElementById("item").value = "";
       document.getElementById("amount").value = "";
       document.getElementById("memo").value = "";
       document.getElementById("installments").value = "";
     }
-
+  
+    // 지출 데이터 로드 함수
     function loadExpenses() {
       db.ref("expenses").on("value", (snapshot) => {
+        console.log("데이터를 불러오는 중...");
+        
         const table = document.getElementById("expenseTable");
         const weeklyTotal = {};
         table.innerHTML = "";
-
+  
         const data = snapshot.val();
-        if (!data) return;
-
+        if (!data) {
+          console.log("데이터가 없습니다.");
+          return;
+        }
+        
+        console.log("데이터 로드 성공!", Object.keys(data).length + "개의 항목이 있습니다.");
+  
         Object.entries(data).forEach(([key, entry]) => {
           const row = `<tr>
             <td>${entry.date}</td>
@@ -177,22 +220,34 @@
             <td><button onclick="deleteExpense('${key}')">삭제</button></td>
           </tr>`;
           table.innerHTML += row;
-
+  
           const d = new Date(entry.date);
           const y = d.getFullYear();
           const w = getWeekNumber(d);
           const wkKey = `${y}-W${w}`;
           weeklyTotal[wkKey] = (weeklyTotal[wkKey] || 0) + Number(entry.amount);
         });
-
+  
         showWeeklyTotal(weeklyTotal);
+      }, (error) => {
+        console.error("데이터 로드 중 오류 발생:", error);
       });
     }
-
+  
+    // 지출 삭제 함수
     function deleteExpense(key) {
-      db.ref("expenses/" + key).remove();
+      if (confirm("정말로 이 항목을 삭제하시겠습니까?")) {
+        db.ref("expenses/" + key).remove()
+          .then(() => {
+            console.log("항목이 성공적으로 삭제되었습니다.");
+          })
+          .catch((error) => {
+            console.error("삭제 중 오류 발생:", error);
+          });
+      }
     }
-
+  
+    // 주차 계산 함수
     function getWeekNumber(date) {
       const d = new Date(date.getTime());
       d.setHours(0, 0, 0, 0);
@@ -200,9 +255,10 @@
       const yearStart = new Date(d.getFullYear(), 0, 1);
       return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
     }
-
-    function showWeeklyTotal(totals) {
-      const container = document.getElementById("weeklyTotal");
+  
+    // 월별 총합 표시 함수
+    function monthlyTotal(totals) {
+      const container = document.getElementById("mothlytotal");
       container.innerHTML = "";
       const keys = Object.keys(totals).sort();
       keys.forEach(key => {
@@ -212,8 +268,15 @@
       });
     }
 
-    window.onload = loadExpenses;
+        // 카테고리 총합 표시 함수
+        function categorytotal(totals) {
+      const container = document.getElementById("categprytotal");
+      container.innerHTML = "";
+      const keys = Object.keys(totals).sort();
+      keys.forEach(key => {
+        const div = document.createElement("div");
+        div.textContent = `${key} : ${totals[key].toLocaleString()}원`;
+        container.appendChild(div);
+      });
+    }
   </script>
-</body>
-</html>
-
